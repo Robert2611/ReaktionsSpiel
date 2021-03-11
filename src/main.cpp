@@ -12,6 +12,9 @@
 #define COLOR_OVERRUN 0x550000
 #define RAINBOW_BRIGHTNESS 100
 #define ANIMATION_UPDATE_PERIOD 100
+#define LEVEL_ANIMATION_FLASHES 2
+#define LEVEL_ANIMATION_ON_TIME (500 / ANIMATION_UPDATE_PERIOD)
+#define LEVEL_ANIMATION_OFF_TIME (500 / ANIMATION_UPDATE_PERIOD)
 
 enum GameState
 {
@@ -53,17 +56,6 @@ void setup()
   pinMode(PIN_BUTTON, INPUT_PULLUP);
   FastLED.addLeds<NEOPIXEL, PIN_LED>(pixels, LED_COUNT);
   Serial.begin(115200);
-}
-
-void set_single_LED(int32_t index)
-{
-  for (int i = 0; i < LED_COUNT; i++)
-  {
-    if (index < 0)
-      pixels[i] = (i == LED_COUNT + index) ? COLOR_OVERRUN : COLOR_OFF;
-    else
-      pixels[i] = (i == index) ? COLOR_ON : COLOR_OFF;
-  }
 }
 
 void debounce_button(bool *key_changed, bool *key_pressed)
@@ -126,7 +118,14 @@ void loop()
       else
         active_LED--;
       last_update_micros = micros();
-      set_single_LED(active_LED);
+      for (int i = 0; i < LED_COUNT; i++)
+      {
+        if (active_LED < 0)
+          pixels[i] = (i == LED_COUNT + active_LED) ? COLOR_OVERRUN : COLOR_OFF;
+        else
+          pixels[i] = (i == active_LED) ? COLOR_ON : COLOR_OFF;
+      }
+      pixels[0] = COLOR_ON;
       FastLED.show();
     }
     if (button_state_changed && is_pressed)
@@ -172,7 +171,7 @@ void loop()
       {
         for (int i = 0; i < LED_COUNT; i++)
         {
-          if (abs(i - LED_COUNT) < animation_frame)
+          if (abs(i - LED_COUNT / 2) > animation_frame)
             pixels[i] = COLOR_OVERRUN;
           else
             pixels[i] = COLOR_OFF;
@@ -188,22 +187,44 @@ void loop()
     if (millis() - animation_last_update_ms > ANIMATION_UPDATE_PERIOD)
     {
       animation_last_update_ms = millis();
-      if (animation_frame >= LED_COUNT / 2)
+      int circle_animation_duration = LED_COUNT / 2;
+      int total_duration = LEVEL_ANIMATION_FLASHES * (LEVEL_ANIMATION_ON_TIME + LEVEL_ANIMATION_OFF_TIME) + circle_animation_duration;
+      if (animation_frame < circle_animation_duration)
       {
-        state = Playing;
-      }
-      else
-      {
+        //circle rising
         for (int i = 0; i < LED_COUNT; i++)
         {
-          if (abs(i - LED_COUNT) < animation_frame)
+          if (abs(i - LED_COUNT / 2) > animation_frame)
             pixels[i] = COLOR_ON;
           else
             pixels[i] = COLOR_OFF;
         }
-        animation_frame++;
         FastLED.show();
       }
+      else if (animation_frame < total_duration)
+      {
+        uint32_t relative = (animation_frame - circle_animation_duration) % (LEVEL_ANIMATION_ON_TIME + LEVEL_ANIMATION_OFF_TIME);
+        if (relative < LEVEL_ANIMATION_OFF_TIME)
+        {
+          for (uint32_t i = 0; i < LED_COUNT; i++)
+          {
+            pixels[i] = COLOR_OFF;
+          }
+        }
+        else
+        {
+          for (uint32_t i = 0; i < LED_COUNT; i++)
+          {
+            pixels[i] = (i <= current_round) ? COLOR_ON : COLOR_OFF;
+          }
+        }
+        FastLED.show();
+      }
+      else
+      {
+        state = Playing;
+      }
+      animation_frame++;
     }
     break;
   }
