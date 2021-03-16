@@ -1,20 +1,21 @@
 #include <Arduino.h>
 #include "FastLED.h"
 
-#define PIN_BUTTON A4
-#define PIN_LED A5
+#define PIN_BUTTON 2
+#define PIN_LED 3
 
-#define LED_COUNT 24
-#define LED_MAX_OVERRUN 0
+#define LED_COUNT 50
+#define LED_ACCEPTED_DISTANCE 1
+#define LED_MAX_BUTTON_DISTANCE 8
 #define BUTTON_DEBOUNCE_MS 20
-#define COLOR_ON 0x005500
+#define COLOR_GREEN 0x003300
 #define COLOR_OFF 0x000000
-#define COLOR_OVERRUN 0x550000
-#define RAINBOW_BRIGHTNESS 100
+#define COLOR_RED 0x330000
+#define RAINBOW_BRIGHTNESS 50
 #define ANIMATION_UPDATE_PERIOD 100
 #define LEVEL_ANIMATION_FLASHES 2
-#define LEVEL_ANIMATION_ON_TIME (500 / ANIMATION_UPDATE_PERIOD)
-#define LEVEL_ANIMATION_OFF_TIME (500 / ANIMATION_UPDATE_PERIOD)
+#define LEVEL_ANIMATION_ON_TIME (300 / ANIMATION_UPDATE_PERIOD)
+#define LEVEL_ANIMATION_OFF_TIME (300 / ANIMATION_UPDATE_PERIOD)
 
 enum GameState
 {
@@ -28,7 +29,6 @@ CRGB pixels[LED_COUNT];
 
 //LEDs during game
 uint32_t last_update_micros;
-float circle_duration = 0;
 uint32_t duration_per_LED = 0;
 int32_t active_LED = 0;
 
@@ -46,15 +46,15 @@ int32_t animation_frame;
 
 void update_rotation_speed()
 {
-  float new_speed = 0.5 + (current_round)*0.2;
-  circle_duration = 1 / new_speed;
-  duration_per_LED = (uint32_t)(circle_duration * 1000000 / LED_COUNT);
+  float new_speed = 10 + (current_round)*5;
+  duration_per_LED = (uint32_t)(1000000 / new_speed);
 }
 
 void setup()
 {
   pinMode(PIN_BUTTON, INPUT_PULLUP);
-  FastLED.addLeds<NEOPIXEL, PIN_LED>(pixels, LED_COUNT);
+  FastLED.addLeds<WS2812, PIN_LED, RGB>(pixels, LED_COUNT);
+  //FastLED.addLeds<NEOPIXEL, PIN_LED>(pixels, LED_COUNT);
   Serial.begin(115200);
 }
 
@@ -113,24 +113,29 @@ void loop()
     //update LEDs
     if (micros() - last_update_micros > duration_per_LED)
     {
-      if (active_LED < -LED_MAX_OVERRUN)
-        lost();
+      if (active_LED < -LED_MAX_BUTTON_DISTANCE)
+      {
+        //just start another round
+        active_LED += LED_COUNT;
+      }
       else
+      {
         active_LED--;
+      }
       last_update_micros = micros();
       for (int i = 0; i < LED_COUNT; i++)
       {
         if (active_LED < 0)
-          pixels[i] = (i == LED_COUNT + active_LED) ? COLOR_OVERRUN : COLOR_OFF;
+          pixels[i] = (i == LED_COUNT + active_LED) ? COLOR_GREEN : COLOR_OFF;
         else
-          pixels[i] = (i == active_LED) ? COLOR_ON : COLOR_OFF;
+          pixels[i] = (i == active_LED) ? COLOR_GREEN : COLOR_OFF;
       }
-      pixels[0] = COLOR_ON;
+      pixels[0] = COLOR_GREEN;
       FastLED.show();
     }
-    if (button_state_changed && is_pressed)
+    if ((button_state_changed && is_pressed) && (abs(active_LED) <= LED_MAX_BUTTON_DISTANCE))
     {
-      if (abs(active_LED) <= LED_MAX_OVERRUN)
+      if (abs(active_LED) <= LED_ACCEPTED_DISTANCE)
         won();
       else
         lost();
@@ -160,9 +165,15 @@ void loop()
   }
   case Lost:
   {
-    if (millis() - animation_last_update_ms > ANIMATION_UPDATE_PERIOD)
+    //button was pressed, so skip animation
+    if (button_state_changed && is_pressed)
+    {
+      state = Idle;
+    }
+    else if (millis() - animation_last_update_ms > ANIMATION_UPDATE_PERIOD)
     {
       animation_last_update_ms = millis();
+      //animation ended
       if (animation_frame >= LED_COUNT / 2)
       {
         state = Idle;
@@ -172,7 +183,7 @@ void loop()
         for (int i = 0; i < LED_COUNT; i++)
         {
           if (abs(i - LED_COUNT / 2) > animation_frame)
-            pixels[i] = COLOR_OVERRUN;
+            pixels[i] = COLOR_RED;
           else
             pixels[i] = COLOR_OFF;
         }
@@ -183,27 +194,18 @@ void loop()
     break;
   }
   case Won:
-  {
-    if (millis() - animation_last_update_ms > ANIMATION_UPDATE_PERIOD)
+  { //button was pressed, so skip animation
+    if (button_state_changed && is_pressed)
+    {
+      state = Playing;
+    }
+    else if (millis() - animation_last_update_ms > ANIMATION_UPDATE_PERIOD)
     {
       animation_last_update_ms = millis();
-      int circle_animation_duration = LED_COUNT / 2;
-      int total_duration = LEVEL_ANIMATION_FLASHES * (LEVEL_ANIMATION_ON_TIME + LEVEL_ANIMATION_OFF_TIME) + circle_animation_duration;
-      if (animation_frame < circle_animation_duration)
+      int total_duration = LEVEL_ANIMATION_FLASHES * (LEVEL_ANIMATION_ON_TIME + LEVEL_ANIMATION_OFF_TIME);
+      if (animation_frame < total_duration)
       {
-        //circle rising
-        for (int i = 0; i < LED_COUNT; i++)
-        {
-          if (abs(i - LED_COUNT / 2) > animation_frame)
-            pixels[i] = COLOR_ON;
-          else
-            pixels[i] = COLOR_OFF;
-        }
-        FastLED.show();
-      }
-      else if (animation_frame < total_duration)
-      {
-        uint32_t relative = (animation_frame - circle_animation_duration) % (LEVEL_ANIMATION_ON_TIME + LEVEL_ANIMATION_OFF_TIME);
+        uint32_t relative = animation_frame % (LEVEL_ANIMATION_ON_TIME + LEVEL_ANIMATION_OFF_TIME);
         if (relative < LEVEL_ANIMATION_OFF_TIME)
         {
           for (uint32_t i = 0; i < LED_COUNT; i++)
@@ -215,7 +217,7 @@ void loop()
         {
           for (uint32_t i = 0; i < LED_COUNT; i++)
           {
-            pixels[i] = (i <= current_round) ? COLOR_ON : COLOR_OFF;
+            pixels[i] = (i <= current_round) ? COLOR_GREEN : COLOR_OFF;
           }
         }
         FastLED.show();
