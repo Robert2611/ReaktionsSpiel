@@ -5,17 +5,22 @@
 #define PIN_LED 3
 
 #define LED_COUNT 50
-#define LED_ACCEPTED_DISTANCE 1
+#define LED_ACCEPTED_DISTANCE 0
 #define LED_MAX_BUTTON_DISTANCE 8
 #define BUTTON_DEBOUNCE_MS 20
+#define COLOR_YELLOW 0x222200
 #define COLOR_GREEN 0x003300
 #define COLOR_OFF 0x000000
 #define COLOR_RED 0x330000
 #define RAINBOW_BRIGHTNESS 50
 #define ANIMATION_UPDATE_PERIOD 100
 #define LEVEL_ANIMATION_FLASHES 2
+#define SPEED_START 7
+#define SPEED_INCREASE_PER_LEVEL 2
 #define LEVEL_ANIMATION_ON_TIME (300 / ANIMATION_UPDATE_PERIOD)
 #define LEVEL_ANIMATION_OFF_TIME (300 / ANIMATION_UPDATE_PERIOD)
+#define REVERSE_DIRECTION
+#define PIXEL_OFFSET 0
 
 enum GameState
 {
@@ -30,7 +35,7 @@ CRGB pixels[LED_COUNT];
 //LEDs during game
 uint32_t last_update_micros;
 uint32_t duration_per_LED = 0;
-int32_t active_LED = 0;
+int32_t current_position = 0;
 
 //game variables
 uint32_t current_round = 0;
@@ -46,7 +51,7 @@ int32_t animation_frame;
 
 void update_rotation_speed()
 {
-  float new_speed = 10 + (current_round)*5;
+  float new_speed = SPEED_START + (current_round)*SPEED_INCREASE_PER_LEVEL;
   duration_per_LED = (uint32_t)(1000000 / new_speed);
 }
 
@@ -85,7 +90,7 @@ void lost()
 void start_game()
 {
   current_round = 0;
-  active_LED = LED_COUNT - 1;
+  current_position = LED_COUNT / 2;
   update_rotation_speed();
   state = Playing;
 }
@@ -94,10 +99,21 @@ void won()
 {
   current_round++;
   //set active LED one too far
-  active_LED = LED_COUNT;
+  current_position = LED_COUNT / 2;
   update_rotation_speed();
   animation_frame = 0;
   state = Won;
+}
+
+int GamePositionToLEDIndex(int position)
+{
+  //make sure its within index range
+  int index = (position + PIXEL_OFFSET + LED_COUNT) % LED_COUNT;
+#ifdef REVERSE_DIRECTION
+  return (LED_COUNT - index - 1);
+#else
+  return index;
+#endif
 }
 
 void loop()
@@ -113,29 +129,32 @@ void loop()
     //update LEDs
     if (micros() - last_update_micros > duration_per_LED)
     {
-      if (active_LED < -LED_MAX_BUTTON_DISTANCE)
+      last_update_micros = micros();
+      if (current_position < -LED_MAX_BUTTON_DISTANCE)
       {
         //just start another round
-        active_LED += LED_COUNT;
+        current_position += LED_COUNT;
       }
       else
       {
-        active_LED--;
+        current_position--;
       }
-      last_update_micros = micros();
       for (int i = 0; i < LED_COUNT; i++)
+        pixels[i] = COLOR_OFF;
+      if (current_position == 0)
       {
-        if (active_LED < 0)
-          pixels[i] = (i == LED_COUNT + active_LED) ? COLOR_GREEN : COLOR_OFF;
-        else
-          pixels[i] = (i == active_LED) ? COLOR_GREEN : COLOR_OFF;
+        pixels[GamePositionToLEDIndex(0)] = COLOR_YELLOW;
       }
-      pixels[0] = COLOR_GREEN;
+      else
+      {
+        pixels[GamePositionToLEDIndex(current_position)] = COLOR_GREEN;
+        pixels[GamePositionToLEDIndex(0)] = COLOR_YELLOW;
+      }
       FastLED.show();
     }
-    if ((button_state_changed && is_pressed) && (abs(active_LED) <= LED_MAX_BUTTON_DISTANCE))
+    if ((button_state_changed && is_pressed) && (abs(current_position) <= LED_MAX_BUTTON_DISTANCE))
     {
-      if (abs(active_LED) <= LED_ACCEPTED_DISTANCE)
+      if (abs(current_position) <= LED_ACCEPTED_DISTANCE)
         won();
       else
         lost();

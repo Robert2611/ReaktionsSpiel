@@ -1,2 +1,10 @@
-.pio
+#
+#exclude all of .pio folder except the binaries
+.pio/*
+!.pio/build/
+.pio/build/*
+!.pio/build/*/
+.pio/build/*/*
+!.pio/build/*/firmware.hex
+!.pio/build/*/firmware.elf
 .vscode
